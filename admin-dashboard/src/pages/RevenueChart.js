@@ -30,6 +30,7 @@ export default function RevenueManagement() {
   const [from, setFrom] = useState("2025-08-01");
   const [to, setTo] = useState("2025-08-31");
   const [granularity, setGranularity] = useState("day");
+  const [paymentFilter, setPaymentFilter] = useState("all"); // all, online, cod
   const [topProducts, setTopProducts] = useState([]);
   const [topUsers, setTopUsers] = useState([]);
 
@@ -37,25 +38,48 @@ export default function RevenueManagement() {
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalOrders, setTotalOrders] = useState(0);
 
+  // 👉 Thêm state cho error handling
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
   useEffect(() => {
     axios.defaults.baseURL = "http://localhost:5000";
-    fetchRevenue();
-    fetchTopProducts();
-    fetchTopUsers();
-  }, [from, to, granularity]);
+    
+    // Debounce để tránh gọi API quá nhiều lần
+    const timeoutId = setTimeout(() => {
+      fetchRevenue();
+      fetchTopProducts();
+      fetchTopUsers();
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [from, to, granularity, paymentFilter]);
 
   const fetchRevenue = async () => {
     try {
+      setLoading(true);
+      setError(null);
+
       // dữ liệu hiện tại
       const res = await axios.get("/api/stats/revenue", {
-        params: { from, to, granularity },
+        params: { 
+          from, 
+          to, 
+          granularity,
+          paymentMethod: paymentFilter === "all" ? "" : paymentFilter
+        },
       });
 
       // dữ liệu năm trước
       const lastYearFrom = dayjs(from).subtract(1, "year").format("YYYY-MM-DD");
       const lastYearTo = dayjs(to).subtract(1, "year").format("YYYY-MM-DD");
       const resCompare = await axios.get("/api/stats/revenue", {
-        params: { from: lastYearFrom, to: lastYearTo, granularity },
+        params: { 
+          from: lastYearFrom, 
+          to: lastYearTo, 
+          granularity,
+          paymentMethod: paymentFilter === "all" ? "" : paymentFilter
+        },
       });
 
       const filledData = fillData(res.data, from, to, granularity);
@@ -69,6 +93,9 @@ export default function RevenueManagement() {
       setTotalOrders(filledData.reduce((sum, d) => sum + d.orders, 0));
     } catch (error) {
       console.error("Lỗi khi tải dữ liệu:", error);
+      setError(error.response?.data?.message || "Có lỗi xảy ra khi tải dữ liệu thống kê");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -114,19 +141,33 @@ export default function RevenueManagement() {
 
   const fetchTopProducts = async () => {
     try {
-      const res = await axios.get("/api/stats/top-products", { params: { from, to } });
+      const res = await axios.get("/api/stats/top-products", { 
+        params: { 
+          from, 
+          to,
+          paymentMethod: paymentFilter === "all" ? "" : paymentFilter
+        } 
+      });
       setTopProducts(res.data);
     } catch (err) {
       console.error("Lỗi tải top sản phẩm:", err);
+      // Không set error cho top products vì không critical
     }
   };
 
   const fetchTopUsers = async () => {
     try {
-      const res = await axios.get("/api/stats/top-users", { params: { from, to } });
+      const res = await axios.get("/api/stats/top-users", { 
+        params: { 
+          from, 
+          to,
+          paymentMethod: paymentFilter === "all" ? "" : paymentFilter
+        } 
+      });
       setTopUsers(res.data);
     } catch (err) {
       console.error("Lỗi tải top khách hàng:", err);
+      // Không set error cho top users vì không critical
     }
   };
 
@@ -228,7 +269,7 @@ export default function RevenueManagement() {
         <main style={styles.content}>
           <div style={styles.contentHeader}>
             <h2 style={styles.contentTitle}>📊 Thống kê doanh thu</h2>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
               <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
               <select value={granularity} onChange={(e) => setGranularity(e.target.value)}>
@@ -236,10 +277,89 @@ export default function RevenueManagement() {
                 <option value="month">Theo tháng</option>
                 <option value="year">Theo năm</option>
               </select>
+              
+              {/* 👉 MỚI - Menu chọn loại thanh toán */}
+              <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                <label style={{ fontSize: "14px", fontWeight: "500" }}>Loại thanh toán:</label>
+                <select 
+                  value={paymentFilter} 
+                  onChange={(e) => setPaymentFilter(e.target.value)}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #ddd",
+                    backgroundColor: "white",
+                    fontSize: "14px"
+                  }}
+                >
+                  <option value="all">📊 Tổng hợp</option>
+                  <option value="zalopay">💳 Thanh toán Online</option>
+                  <option value="cod">💰 COD</option>
+                </select>
+              </div>
+
               <button onClick={exportToExcel}>Xuất Excel</button>
               <button onClick={exportToPDF}>Xuất PDF</button>
               <button onClick={() => window.print()}>In nhanh</button>
             </div>
+          </div>
+
+          {/* 👉 Hiển thị error message */}
+          {error && (
+            <div style={{
+              backgroundColor: "#fee",
+              border: "1px solid #fcc",
+              borderRadius: "8px",
+              padding: "12px",
+              margin: "20px 0",
+              color: "#c33"
+            }}>
+              <strong>Lỗi:</strong> {error}
+              <button 
+                onClick={() => {
+                  setError(null);
+                  fetchRevenue();
+                }}
+                style={{
+                  marginLeft: "10px",
+                  padding: "4px 8px",
+                  backgroundColor: "#c33",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: "pointer"
+                }}
+              >
+                Thử lại
+              </button>
+            </div>
+          )}
+
+          {/* 👉 Loading indicator */}
+          {loading && (
+            <div style={{
+              textAlign: "center",
+              padding: "20px",
+              color: "#666"
+            }}>
+              Đang tải dữ liệu thống kê...
+            </div>
+          )}
+
+          {/* 👉 Hiển thị loại thống kê đang xem */}
+          <div style={{
+            backgroundColor: "#f0f8ff",
+            border: "1px solid #b3d9ff",
+            borderRadius: "8px",
+            padding: "12px",
+            margin: "20px 0",
+            textAlign: "center"
+          }}>
+            <h3 style={{ margin: 0, color: "#0066cc" }}>
+              {paymentFilter === "all" && "📊 Thống kê tổng hợp (Tất cả phương thức thanh toán)"}
+              {paymentFilter === "zalopay" && "💳 Thống kê thanh toán Online (ZaloPay)"}
+              {paymentFilter === "cod" && "💰 Thống kê thanh toán COD (Thanh toán khi nhận hàng)"}
+            </h3>
           </div>
 
           {/* 👉 Hiển thị tổng doanh thu và số đơn */}
