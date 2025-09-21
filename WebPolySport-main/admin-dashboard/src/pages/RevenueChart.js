@@ -336,6 +336,7 @@ export default function RevenueManagement() {
                       {new Intl.NumberFormat("vi-VN").format(row.revenue)} VNĐ
                     </td>
                     <td style={styles.td}>{row.orders} đơn</td>
+                    
                   </tr>
                 ))}
               </tbody>
