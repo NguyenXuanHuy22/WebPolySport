@@ -1,0 +1,98 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Hover effects for interactive elements */
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+.product-card:hover .product-overlay {
+  opacity: 1;
+}
+
+.product-card:hover .product-image {
+  transform: scale(1.05);
+}
+
+.nav-item:hover {
+  background-color: #f1f5f9;
+  color: #1a202c;
+}
+
+.header-button:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.add-button:hover {
+  background-color: #2563eb;
+  transform: translateY(-1px);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.action-button:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.view-button:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.quick-action:hover {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.logout-button:hover {
+  background-color: #dc2626;
+  transform: translateY(-1px);
+}
