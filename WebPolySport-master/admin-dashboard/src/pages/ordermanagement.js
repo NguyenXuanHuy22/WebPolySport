@@ -470,7 +470,6 @@ const Ordermanagement = () => {
                     <th>Số lượng</th>
                     <th>Giá</th>
                     <th>Thành tiền</th>
-                    <th>Thời gian</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -489,7 +488,6 @@ const Ordermanagement = () => {
                       <td>{item.quantity}</td>
                       <td>{item.price.toLocaleString()} VND</td>
                       <td>{item.subtotal.toLocaleString()} VND</td>
-                      <td>{new Date(item.date).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
