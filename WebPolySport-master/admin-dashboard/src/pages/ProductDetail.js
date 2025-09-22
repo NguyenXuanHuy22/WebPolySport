@@ -56,7 +56,7 @@ const ProductDetail = () => {
     if (!images.length) return;
 
     let index = 0;
-    
+
   }, [product]);
 
   const handleVariantChange = (index, field, value) => {
@@ -156,16 +156,18 @@ const ProductDetail = () => {
         {/* Gallery ảnh */}
         <div style={styles.gallery}>
           {/* Ảnh chính (preview) */}
-          <img
-            src={previewImage || product.image || "/placeholder.jpg"}
-            alt="main"
-            style={styles.mainImage}
-          />
+          <div style={styles.mainImageWrapper}>
+            <img
+              src={previewImage || product.image || "/placeholder.jpg"}
+              alt="main"
+              style={styles.mainImage}
+            />
+          </div>
 
           {/* Grid ảnh phụ + ảnh chính */}
           <div style={styles.thumbnailContainer}>
             {[product.image, ...(product.extraImages || [])]
-              .filter(Boolean) // loại bỏ null/undefined
+              .filter(Boolean)
               .slice(0, 8)
               .map((img, idx) => (
                 <img
@@ -180,7 +182,6 @@ const ProductDetail = () => {
                 />
               ))}
 
-            {/* Nếu nhiều hơn 8 ảnh thì hiện "Xem thêm" */}
             {[product.image, ...(product.extraImages || [])].length > 8 && (
               <div style={styles.moreThumbs}>
                 +{[product.image, ...(product.extraImages || [])].length - 8} ảnh
@@ -548,42 +549,52 @@ const styles = {
     backgroundColor: "#fff",
     alignItems: "flex-start", // 👈 canh trên
   },
-  gallery: { flex: "1 1 320px" },
+
+   gallery: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    alignItems: "center",
+  },
+  mainImageWrapper: {
+    width: "500px",       // CHỐT cố định luôn chiều ngang
+    height: "500px",      // CHỐT cố định luôn chiều cao
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8f8f8",
+    borderRadius: "8px",
+    overflow: "hidden",
+  },
   mainImage: {
-    width: "100%",
     maxWidth: "100%",
-    height: 400,
-    objectFit: "cover",
-    borderRadius: 10,
-    marginBottom: 10,
-    border: "1px solid #ddd",
+    maxHeight: "100%",
+    objectFit: "contain", // giữ nguyên tỉ lệ
+    display: "block",
   },
   thumbnailContainer: {
     display: "flex",
     flexWrap: "wrap",
-    gap: 6,
+    gap: "8px",
+    justifyContent: "center",
   },
   thumbnail: {
-    width: 65,
-    height: 65,
+    width: "70px",
+    height: "70px",
     objectFit: "cover",
-    borderRadius: 6,
     cursor: "pointer",
-    border: "2px solid transparent",
-    transition: "0.2s",
-  },
-  thumbnailHover: {
-    border: "2px solid #1976d2",
+    borderRadius: "4px",
   },
   moreThumbs: {
-    width: 65,
-    height: 65,
-    borderRadius: 6,
-    backgroundColor: "#f3f3f3",
+    width: "70px",
+    height: "70px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontWeight: "bold",
+    border: "1px solid #ddd",
+    borderRadius: "4px",
+    backgroundColor: "#f0f0f0",
+    fontSize: "14px",
     cursor: "pointer",
   },
 

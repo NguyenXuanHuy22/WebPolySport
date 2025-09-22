@@ -22,7 +22,6 @@ function Dashboard() {
   const inStockProducts = items.filter(p => p.status === 'còn hàng').length;
   const outOfStockProducts = items.filter(p => p.status === 'hết hàng').length;
 
-
   useEffect(() => {
     dispatch(fetchProducts());
     const adminData = getAdminUser();
@@ -133,7 +132,6 @@ function Dashboard() {
     setPreviewExtraImages(prev => [...prev, ...previews]);
   };
 
-
   const renderPrice = (product) => {
     if (product.salePrice && product.salePrice > 0) {
       return (
@@ -153,7 +151,6 @@ function Dashboard() {
       </span>
     );
   };
-
   return (
     <div style={styles.container}>
       {/* Header */}
