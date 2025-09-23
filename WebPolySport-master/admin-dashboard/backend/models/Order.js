@@ -38,8 +38,8 @@ const orderSchema = new Schema({
 
   status: {
     type: String,
-    enum: ['Pending Payment', 'Chờ xác nhận', 'Đã xác nhận', 'Đang giao hàng', 'Đã giao', 'Đã huỷ'], // ✅ Thêm 'Pending Payment'
-    default: 'Pending Payment' // Mặc định là pending khi tạo từ /create
+    enum: ['Chờ xác nhận', 'Đã xác nhận', 'Đang giao hàng', 'Đã giao', 'Đã huỷ'],
+    default: 'Chờ xác nhận' // Mặc định là chờ xác nhận khi tạo đơn hàng
   },
 
   date: { type: Date, default: Date.now }, // Ngày tạo order

@@ -34,7 +34,7 @@ const buildTransId = (prefix = '') => {
 const hmacSHA256 = (data, key) =>
   crypto.createHmac('sha256', key).update(String(data)).digest('hex');
 
-// Helper: Cập nhật kho và clear cart (chỉ gọi khi success)
+// Helper: Cập nhật kho và xóa sản phẩm đã mua khỏi cart (chỉ gọi khi success)
 const updateInventoryAndCart = async (order) => {
   for (const it of order.items) {
     const product = await Product.findById(it.productId);
@@ -49,7 +49,68 @@ const updateInventoryAndCart = async (order) => {
       }
     }
   }
-  await Cart.findOneAndUpdate({ userId: order.userId }, { items: [] });
+  
+  // Chỉ xóa sản phẩm đã mua khỏi cart, không xóa hết
+  const cart = await Cart.findOne({ userId: order.userId });
+  if (cart) {
+    // Tạo danh sách các sản phẩm đã mua với đầy đủ thông tin
+    const purchasedItems = order.items.map(item => ({
+      productId: item.productId,
+      size: item.size || '',
+      color: item.color || ''
+    }));
+    
+    // Chỉ xóa những item có cùng productId, size, color
+    cart.items = cart.items.filter(cartItem => {
+      return !purchasedItems.some(purchasedItem => 
+        cartItem.productId === purchasedItem.productId &&
+        cartItem.size === purchasedItem.size &&
+        cartItem.color === purchasedItem.color
+      );
+    });
+    await cart.save();
+  }
+};
+
+// Helper: Hoàn lại kho và thêm sản phẩm vào cart (khi hủy đơn hàng)
+const restoreInventoryAndCart = async (order) => {
+  for (const it of order.items) {
+    const product = await Product.findById(it.productId);
+    if (!product) continue;
+    const variant = product.variants.find(v => v.size === it.size && v.color === it.color);
+    if (variant) {
+      variant.quantity += it.quantity;
+      await product.save();
+    }
+  }
+  
+  // Thêm sản phẩm trở lại cart
+  const cart = await Cart.findOne({ userId: order.userId });
+  if (cart) {
+    // Thêm các item từ order vào cart
+    for (const item of order.items) {
+      const existingItem = cart.items.find(cartItem => 
+        cartItem.productId === item.productId && 
+        cartItem.size === item.size && 
+        cartItem.color === item.color
+      );
+      
+      if (existingItem) {
+        existingItem.quantity += item.quantity;
+      } else {
+        cart.items.push({
+          productId: item.productId,
+          name: item.name,
+          image: item.image,
+          price: item.price,
+          quantity: item.quantity,
+          size: item.size,
+          color: item.color
+        });
+      }
+    }
+    await cart.save();
+  }
 };
 
 // =============================================================================
@@ -137,8 +198,45 @@ router.post('/create', async (req, res) => {
 
     const zpTransToken = z.zp_trans_token || z.order_token || null;
 
-    // ✅ FIX: Lưu PENDING order (KHÔNG trừ kho, status 'Pending Payment')
-    const pendingOrder = await Order.create({
+    // ✅ Trừ tồn kho và xóa sản phẩm khỏi giỏ hàng ngay khi đặt hàng
+    for (const it of validItems) {
+      const product = await Product.findById(it.productId);
+      if (!product) continue;
+      const variant = product.variants.find(v => v.size === it.size && v.color === it.color);
+      if (variant) {
+        if (variant.quantity < it.quantity) {
+          return res.status(400).json({ 
+            message: `Kho không đủ cho sản phẩm ${product.name} ${it.size}/${it.color}. Còn lại: ${variant.quantity}` 
+          });
+        }
+        variant.quantity -= it.quantity;
+        await product.save();
+      }
+    }
+
+    // ✅ Xóa sản phẩm đã chọn khỏi giỏ hàng (chỉ xóa đúng sản phẩm có cùng productId, size, color)
+    const cart = await Cart.findOne({ userId });
+    if (cart) {
+      // Tạo danh sách các sản phẩm đã mua với đầy đủ thông tin
+      const purchasedItems = validItems.map(item => ({
+        productId: item.productId,
+        size: item.size || '',
+        color: item.color || ''
+      }));
+      
+      // Chỉ xóa những item có cùng productId, size, color
+      cart.items = cart.items.filter(cartItem => {
+        return !purchasedItems.some(purchasedItem => 
+          cartItem.productId === purchasedItem.productId &&
+          cartItem.size === purchasedItem.size &&
+          cartItem.color === purchasedItem.color
+        );
+      });
+      await cart.save();
+    }
+
+    // ✅ Lưu order với status "Chờ xác nhận" ngay lập tức
+    const order = await Order.create({
       userId,
       items: validItems.map(it => ({
         orderDetailId: crypto.randomUUID(),
@@ -157,16 +255,16 @@ router.post('/create', async (req, res) => {
       customerPhone: customerPhone || '',
       customerAddress: customerAddress || '',
       paymentMethod: 'ZaloPay',
-      status: 'Pending Payment', // ✅ PENDING - chưa thanh toán
+      status: 'Chờ xác nhận', // ✅ Tạo đơn với status "Chờ xác nhận" ngay lập tức
       appTransId: app_trans_id,
       zpTransToken
     });
 
-    console.log('[ZALOPAY CREATE] Lưu pending order:', pendingOrder._id);
+    console.log('[ZALOPAY CREATE] Lưu order:', order._id);
 
     return res.json({
-      message: 'Khởi tạo thanh toán ZaloPay thành công',
-      orderId: pendingOrder._id, // Trả pending orderId để frontend theo dõi nếu cần
+      message: 'Đặt hàng thành công',
+      orderId: order._id,
       app_trans_id,
       amount,
       paymentUrl,
@@ -204,27 +302,44 @@ router.post('/callback', async (req, res) => {
 
     const order = await Order.findOne({ appTransId: app_trans_id });
     if (!order) {
-      console.log('[ZALOPAY CALLBACK] Pending order không tồn tại:', app_trans_id);
+      console.log('[ZALOPAY CALLBACK] Order không tồn tại:', app_trans_id);
       return res.status(200).json({ return_code: 2, return_message: 'Order không tồn tại (duplicate or late)' });
     }
 
+    // ✅ Ưu tiên callback từ ZaloPay - nếu đã xử lý thành công thì giữ nguyên
     if (order.status === 'Đã xác nhận' || order.status === 'Đang giao hàng' || order.status === 'Đã giao') {
-      console.log('[ZALOPAY CALLBACK] Đã xử lý trước:', app_trans_id);
+      console.log('[ZALOPAY CALLBACK] Đã xử lý thành công trước đó:', app_trans_id);
       return res.status(200).json({ return_code: 1, return_message: 'Đã cập nhật trước đó' });
     }
 
-    if (status !== 1) { // Fail
-      order.status = 'Hủy'; // ✅ Đánh dấu hủy pending
+    if (status !== 1) { // Fail từ ZaloPay
+      // ✅ Nếu đã bị hủy trước đó, giữ nguyên trạng thái hủy
+      if (order.status === 'Đã huỷ') {
+        console.log('[ZALOPAY CALLBACK] Đã hủy trước đó, giữ nguyên:', app_trans_id);
+        return res.status(200).json({ return_code: 1, return_message: 'OK (already cancelled)' });
+      }
+      
+      // ✅ Cập nhật thành hủy nếu chưa hủy
+      order.status = 'Đã huỷ';
+      order.cancelledAt = new Date();
       await order.save();
       console.log('[ZALOPAY CALLBACK] Cập nhật fail:', app_trans_id);
       return res.status(200).json({ return_code: 1, return_message: 'OK (fail case)' });
     }
 
-    // ✅ Success: Cập nhật thành chính thức, trừ kho, clear cart
-    await updateInventoryAndCart(order);
-    order.status = 'Đã xác nhận';
+    // ✅ Success từ ZaloPay - ưu tiên callback và cập nhật
+    // Nếu user đã hủy trong app nhưng callback báo thành công -> ưu tiên callback
+    if (order.status === 'Đã huỷ') {
+      console.log('[ZALOPAY CALLBACK] Conflict: User hủy nhưng callback success, ưu tiên callback:', app_trans_id);
+      // ✅ Nếu đã hủy nhưng callback success, cần trừ kho và xóa khỏi cart (vì đã hoàn lại khi hủy)
+      await updateInventoryAndCart(order);
+    }
+    // ✅ Nếu đã "Chờ xác nhận" thì không cần trừ kho lại vì đã trừ khi đặt hàng
+    
+    order.status = 'Chờ xác nhận'; // ✅ Giữ nguyên "Chờ xác nhận" khi thanh toán thành công
     order.zpTransId = zp_trans_id;
     order.paidAmount = amount;
+    order.confirmedAt = new Date();
     await order.save();
 
     console.log('[ZALOPAY CALLBACK] Cập nhật success:', app_trans_id);
@@ -247,8 +362,10 @@ router.get('/return', async (req, res) => {
     // ✅ Thêm check DB để chính xác hơn
     if (apptransid) {
       const order = await Order.findOne({ appTransId: apptransid });
-      if (order && (order.status === 'Đã xác nhận' || order.status === 'Đang giao hàng')) {
+      if (order && (order.status === 'Chờ xác nhận' || order.status === 'Đã xác nhận' || order.status === 'Đang giao hàng' || order.status === 'Đã giao')) {
         isSuccess = true;
+      } else if (order && order.status === 'Đã huỷ') {
+        isSuccess = false;
       }
     }
 
@@ -289,14 +406,14 @@ router.post('/query', async (req, res) => {
 
     console.log('[ZALOPAY QUERY] Query cho trans_id:', app_trans_id);
 
-    // ✅ Tìm pending order trước
+    // ✅ Tìm order trước
     const order = await Order.findOne({ appTransId: app_trans_id });
     if (!order) {
-      return res.status(404).json({ message: 'Không tìm thấy pending order', return_code: 2 });
+      return res.status(404).json({ message: 'Không tìm thấy order', return_code: 2 });
     }
 
     // Nếu đã chính thức, trả status ngay
-    if (order.status === 'Đã xác nhận' || order.status === 'Đang giao hàng' || order.status === 'Đã giao') {
+    if (order.status === 'Chờ xác nhận' || order.status === 'Đã xác nhận' || order.status === 'Đang giao hàng' || order.status === 'Đã giao') {
       return res.json({
         return_code: 1,
         return_message: 'Đã thanh toán thành công',
@@ -306,11 +423,11 @@ router.post('/query', async (req, res) => {
       });
     }
 
-    if (order.status === 'Hủy') {
+    if (order.status === 'Đã huỷ') {
       return res.json({
         return_code: 0,
         return_message: 'Đã hủy',
-        order_status: 'Hủy',
+        order_status: 'Đã huỷ',
         app_trans_id
       });
     }
@@ -333,31 +450,83 @@ router.post('/query', async (req, res) => {
     console.log('[ZALOPAY QUERY] Response từ ZaloPay:', JSON.stringify(qData, null, 2));
 
     if (qData.return_code !== 1) { // Fail
-      order.status = 'Hủy';
-      await order.save();
+      // ✅ Nếu đã bị hủy trước đó, giữ nguyên
+      if (order.status !== 'Đã huỷ') {
+        order.status = 'Đã huỷ';
+        order.cancelledAt = new Date();
+        await order.save();
+      }
       return res.json({
         ...qData,
-        order_status: 'Hủy'
+        order_status: 'Đã huỷ'
       });
     }
 
-    // ✅ Success: Cập nhật pending thành chính thức, trừ kho
-    await updateInventoryAndCart(order);
-    order.status = 'Đã xác nhận';
+    // ✅ Success: Cập nhật trạng thái (không trừ kho lại vì đã trừ khi đặt hàng)
+    // Chỉ trừ kho nếu đã bị hủy trước đó
+    if (order.status === 'Đã huỷ') {
+      await updateInventoryAndCart(order);
+    }
+    
+    order.status = 'Chờ xác nhận'; // ✅ Giữ nguyên "Chờ xác nhận" khi thanh toán thành công
     order.zpTransId = qData.zp_trans_id || null;
     order.paidAmount = qData.amount || 0;
+    order.confirmedAt = new Date();
     await order.save();
 
     console.log('[ZALOPAY QUERY] Cập nhật success từ query:', app_trans_id);
     return res.json({
       ...qData,
-      order_status: 'Đã xác nhận',
+      order_status: 'Chờ xác nhận',
       orderId: order._id
     });
 
   } catch (err) {
     console.error('ZaloPay query error:', err?.response?.data || err.message);
     return res.status(500).json({ message: 'Lỗi query ZaloPay', error: err?.response?.data || err.message });
+  }
+});
+
+// =============================================================================
+// 5) CANCEL ORDER (hủy đơn hàng) - Hoàn lại kho và thêm vào cart
+// =============================================================================
+router.post('/cancel', async (req, res) => {
+  try {
+    const { app_trans_id } = req.body || {};
+    if (!app_trans_id) return res.status(400).json({ message: 'Thiếu app_trans_id' });
+
+    console.log('[ZALOPAY CANCEL] Hủy order cho trans_id:', app_trans_id);
+
+    const order = await Order.findOne({ appTransId: app_trans_id });
+    if (!order) {
+      return res.status(404).json({ message: 'Không tìm thấy order' });
+    }
+
+    // Chỉ cho phép hủy nếu đang "Chờ xác nhận"
+    if (order.status !== 'Chờ xác nhận') {
+      return res.status(400).json({ 
+        message: `Không thể hủy đơn hàng với trạng thái: ${order.status}` 
+      });
+    }
+
+    // ✅ Hoàn lại kho và thêm sản phẩm vào cart
+    await restoreInventoryAndCart(order);
+    
+    // ✅ Cập nhật trạng thái thành hủy
+    order.status = 'Đã huỷ';
+    order.cancelledAt = new Date();
+    await order.save();
+
+    console.log('[ZALOPAY CANCEL] Hủy thành công:', app_trans_id);
+    return res.json({
+      message: 'Hủy đơn hàng thành công',
+      order_status: 'Đã huỷ',
+      app_trans_id
+    });
+
+  } catch (err) {
+    console.error('ZaloPay cancel error:', err?.response?.data || err.message);
+    return res.status(500).json({ message: 'Lỗi hủy đơn hàng', error: err?.response?.data || err.message });
   }
 });
 
